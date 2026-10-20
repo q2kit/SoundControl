@@ -63,8 +63,12 @@ jobs:
             security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
             security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
             rm "$RUNNER_TEMP/certificate.p12"
+            # A self-signed certificate isn't trusted, so codesign won't find it by name; pick it by hash,
+            # and put the keychain on the search list so codesign looks there at all.
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            identity=$(security find-certificate -c "SoundControl Self-Signed" -Z "$keychain" | awk '/SHA-1 hash:/ { print $NF }')
             codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements \
-              --keychain "$keychain" --sign "SoundControl Self-Signed" "$app"
+              --keychain "$keychain" --sign "$identity" "$app"
           else
             echo "::warning::No signing certificate configured, signing ad hoc."
             codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements --sign - "$app"
