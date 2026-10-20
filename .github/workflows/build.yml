@@ -1,0 +1,78 @@
+name: Build
+
+# Every pull request into main is built to make sure it compiles. Once it's merged, the same build is
+# packaged and published as a GitHub release.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Work out the version
+        id: version
+        run: |
+          marketing=$(xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
+            -showBuildSettings 2>/dev/null | awk '/ MARKETING_VERSION = / { print $3; exit }')
+          echo "version=${marketing}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # There are no signing certificates on the runner, so the app is signed ad hoc.
+      - name: Build
+        run: |
+          xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build
+
+      - name: Package
+        run: ditto -c -k --keepParent build/DerivedData/Build/Products/Release/SoundControl.app SoundControl.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoundControl
+          path: SoundControl.zip
+
+  release:
+    name: Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SoundControl
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" SoundControl.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "SoundControl $VERSION" --generate-notes \
+            --notes "Unzip and move **SoundControl.app** to Applications.
+
+          This build isn't notarized, so macOS will refuse to open it the first time. Right-click the app and choose **Open**, or run \`xattr -dr com.apple.quarantine /Applications/SoundControl.app\`."

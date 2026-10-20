@@ -8,6 +8,14 @@ touching the rest, or mute an app you never want to hear.
 - macOS 14.4 or later (it relies on Core Audio process taps)
 - Xcode 16 or later
 
+## Download
+Grab `SoundControl.zip` from the [latest release](https://github.com/q2kit/SoundControl/releases/latest),
+unzip it and move **SoundControl.app** to Applications. Releases are built automatically whenever a pull
+request is merged into `main`.
+
+The builds aren't notarized, so the first time macOS will say it can't verify the app. Right-click it and
+choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/SoundControl.app` once.
+
 ## Building
 Open `SoundControl.xcodeproj` and press **Run** (⌘R).
 
