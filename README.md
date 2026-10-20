@@ -48,6 +48,8 @@ The project signs with "Sign to Run Locally" by default. Pick your own team unde
   devices created by other software are hidden out of the box.
 - Everything is remembered per app and comes back when the app is opened again.
 - Available in English and Vietnamese; it follows your macOS language.
+- Other apps on your Mac can read and change each app's volume too (see
+  [Talking to SoundControl](#talking-to-soundcontrol)).
 
 ## Releasing
 Every pull request into `main` needs a new version: bump it under *target SoundControl → General →
@@ -85,6 +87,56 @@ How does it tell a copied change from one you made on purpose? Anything you do i
 is always respected, however fast you click, because the app knows it did it. For changes from outside,
 such as the keyboard, Control Center or another app, the only clue is timing: two devices changing within
 half a second of each other counts as copied. Muting that device yourself a little later is left alone.
+
+### Talking to SoundControl
+While it runs, SoundControl listens on a Unix domain socket at
+`~/Library/Application Support/SoundControl/control.sock`. The folder is only open to you, so only
+your own apps can connect. SoundControl doesn't care who connects; with nobody connected it does nothing
+extra.
+
+Each message is one line of JSON. Say hello first:
+
+```json
+{"kind":"hello","version":1}
+```
+
+SoundControl answers with the current state, and sends it again whenever something changes:
+
+```json
+{"kind":"state","version":1,
+ "apps":[{"id":"com.example.player","name":"Player","playing":true,
+          "device":{"uid":"BuiltInSpeakerDevice","name":"Speakers"}}],
+ "settings":{"com.example.player":{"volume":0.6,"muted":false,"device":"BuiltInSpeakerDevice"}},
+ "devices":[{"uid":"BuiltInSpeakerDevice","name":"Speakers","volume":0.5,"muted":false}]}
+```
+
+`apps` lists the apps that have audio right now and the device their sound ends up on. `settings` holds
+every app you've changed, running or not; an app that isn't there is at 100%, unmuted and follows the
+system output, and `device` is only there when the app is sent somewhere else. `devices` are the
+outputs an app can be sent to, the same ones SoundControl's own pickers show, with their own volume
+(left out for a device that has no volume control). An app's `id` is its
+bundle identifier, or `pid:<n>` when it has none.
+
+To change an app:
+
+```json
+{"kind":"setVolume","app":"com.example.player","volume":0.5}
+{"kind":"setMuted","app":"com.example.player","muted":true}
+{"kind":"setDevice","app":"com.example.player","device":"BuiltInSpeakerDevice"}
+{"kind":"setDevice","app":"com.example.player"}
+```
+
+The last one sends the app back to the system output. A device's own volume works the same way, and
+is shared by every app playing on it:
+
+```json
+{"kind":"setDeviceVolume","device":"BuiltInSpeakerDevice","volume":0.4}
+{"kind":"setDeviceMuted","device":"BuiltInSpeakerDevice","muted":true}
+```
+
+Turning a muted app up unmutes it, like the volume keys do. This works for apps that aren't running as well; the setting is kept and applied the next time the app
+plays. New fields may show up in later versions, so ignore the ones you don't know. Lines SoundControl
+can't make sense of are skipped.
 
 ### Limitations
 The original app still plays to the system output behind the scenes. So when the system output device
