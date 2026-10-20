@@ -86,6 +86,7 @@ final class AudioController: ObservableObject {
     private var lastRoutedVolumeChange: [AudioDeviceID: Date] = [:]
     private var refreshScheduled = false
     private var terminationObserver: NSObjectProtocol?
+    private var controlServer: ControlServer?
     private var lastSystemVolumeChange = Date.distantPast
     private static let settingsKey = "AppSettings"
     private static let deviceVisibilityKey = "DeviceVisibility"
@@ -119,6 +120,8 @@ final class AudioController: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.removeAllTaps() }
         }
+
+        controlServer = ControlServer(controller: self)
     }
 
     private func removeAllTaps() {
@@ -177,20 +180,39 @@ final class AudioController: ObservableObject {
 
     // MARK: - User actions
 
+    /// Like the volume keys: turning a muted app up also unmutes it.
     func setVolume(_ volume: Float, for app: AudioApp) {
-        update(app) { $0.volume = volume }
+        setVolume(volume, forAppID: app.id)
     }
 
     func toggleMute(for app: AudioApp) {
-        update(app) { $0.muted.toggle() }
+        update(app.id) { $0.muted.toggle() }
     }
 
     func setDevice(_ uid: String?, for app: AudioApp) {
-        update(app) { $0.deviceUID = uid }
+        update(app.id) { $0.deviceUID = uid }
     }
 
     func reset(_ app: AudioApp) {
-        update(app) { $0 = AppSettings() }
+        update(app.id) { $0 = AppSettings() }
+    }
+
+    /// For other apps talking to us over the control socket. Works for apps that aren't running too:
+    /// the setting is kept and applied as soon as the app plays again.
+    func setVolume(_ volume: Float, forAppID id: String) {
+        update(id) {
+            $0.volume = min(1, max(0, volume))
+            if $0.volume > 0 { $0.muted = false }
+        }
+    }
+
+    func setMuted(_ muted: Bool, forAppID id: String) {
+        update(id) { $0.muted = muted }
+    }
+
+    /// nil sends the app back to the system output.
+    func setDevice(_ uid: String?, forAppID id: String) {
+        update(id) { $0.deviceUID = uid }
     }
 
     func resetAll() {
@@ -229,6 +251,31 @@ final class AudioController: ObservableObject {
         updateRoutedDevice(id) { $0.muted = AudioDevices.isMuted(id) }
     }
 
+    /// For the control socket: the same as moving that device's slider here, whichever card it's on.
+    func setVolume(_ volume: Float, ofDeviceUID uid: String) {
+        guard let device = devices.first(where: { $0.uid == uid }) else { return }
+        let volume = min(1, max(0, volume))
+        if device.id == defaultDeviceID {
+            setSystemVolume(volume)
+        } else if let routed = routedDevices.first(where: { $0.id == device.id }) {
+            setVolume(volume, of: routed)
+        } else {
+            AudioDevices.setVolume(volume, of: device.id)
+            if volume > 0, AudioDevices.isMuted(device.id) { setMuted(false, of: device.id) }
+        }
+    }
+
+    func setMuted(_ muted: Bool, ofDeviceUID uid: String) {
+        guard let device = devices.first(where: { $0.uid == uid }) else { return }
+        if device.id == defaultDeviceID {
+            if systemMuted != muted { toggleSystemMute() }
+        } else if let routed = routedDevices.first(where: { $0.id == device.id }) {
+            if routed.muted != muted { toggleMute(of: routed) }
+        } else {
+            setMuted(muted, of: device.id)
+        }
+    }
+
     /// Every mute SoundControl applies for the user goes through here, so the mute guard knows it's intentional.
     private func setMuted(_ muted: Bool, of id: AudioDeviceID) {
         muteGuard.willSetMute(id)
@@ -245,12 +292,12 @@ final class AudioController: ObservableObject {
         refresh()
     }
 
-    private func update(_ app: AudioApp, _ change: (inout AppSettings) -> Void) {
-        var s = settings(for: app)
+    private func update(_ id: String, _ change: (inout AppSettings) -> Void) {
+        var s = settings[id] ?? AppSettings()
         change(&s)
-        settings[app.id] = s.isDefault ? nil : s
+        settings[id] = s.isDefault ? nil : s
         Stored.save(settings, as: Self.settingsKey)
-        applyRouting(for: app)
+        if let app = apps.first(where: { $0.id == id }) { applyRouting(for: app) }
         updateRoutedDevices()
     }
 
