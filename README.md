@@ -11,7 +11,7 @@ touching the rest, or mute an app you never want to hear.
 ## Download
 Grab `SoundControl.zip` from the [latest release](https://github.com/q2kit/SoundControl/releases/latest),
 unzip it and move **SoundControl.app** to Applications. Releases are built automatically whenever a pull
-request is merged into `main`.
+request is merged into `main`, and are named after the app's version.
 
 The builds aren't notarized yet, so the first time you open the app macOS will say it can't verify it.
 Go to *System Settings → Privacy & Security*, scroll down and click **Open Anyway** (since macOS 15,
@@ -48,6 +48,12 @@ The project signs with "Sign to Run Locally" by default. Pick your own team unde
   devices created by other software are hidden out of the box.
 - Everything is remembered per app and comes back when the app is opened again.
 - Available in English and Vietnamese; it follows your macOS language.
+
+## Releasing
+Every pull request into `main` needs a new version: bump it under *target SoundControl → General →
+Version* (`MARKETING_VERSION`). The build check fails if that version has already been released. Once the
+pull request is merged, CI publishes `v<version>` with the zipped app. The build number is the CI run
+number.
 
 ## Translations
 All text lives in String Catalogs: `SoundControl/Localizable.xcstrings` for the interface and

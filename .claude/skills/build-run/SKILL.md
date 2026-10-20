@@ -79,6 +79,9 @@ cp -R build/SoundControl.xcarchive/Products/Applications/SoundControl.app build/
 ```
 Signed with the project's settings ("Sign to Run Locally" or the user's team).
 
+Releases are tagged `v<MARKETING_VERSION>`; every PR into main must bump MARKETING_VERSION, otherwise
+the Build check fails ("already been released"). CURRENT_PROJECT_VERSION is the CI run number.
+
 CI signs releases with a self-signed certificate ("SoundControl Self-Signed") from the repo secrets
 `SIGNING_CERTIFICATE_P12` (base64 of the .p12) and `SIGNING_CERTIFICATE_PASSWORD`. The certificate and
 its password are kept by the user outside the repo; never commit them. There is no Apple Developer
