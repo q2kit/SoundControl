@@ -77,5 +77,10 @@ xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration R
   -archivePath build/SoundControl.xcarchive archive
 cp -R build/SoundControl.xcarchive/Products/Applications/SoundControl.app build/
 ```
-Signed with the project's settings ("Sign to Run Locally" or the user's team). Sharing with other Macs
-without Gatekeeper warnings needs Developer ID signing and notarization (paid Apple Developer account).
+Signed with the project's settings ("Sign to Run Locally" or the user's team).
+
+CI signs releases with a self-signed certificate ("SoundControl Self-Signed") from the repo secrets
+`SIGNING_CERTIFICATE_P12` (base64 of the .p12) and `SIGNING_CERTIFICATE_PASSWORD`. The certificate and
+its password are kept by the user outside the repo; never commit them. There is no Apple Developer
+account, so no notarization: Gatekeeper asks once on first launch, but the fixed identity keeps the
+audio permission across updates. Replacing the certificate makes every user grant permissions again.

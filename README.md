@@ -8,6 +8,24 @@ touching the rest, or mute an app you never want to hear.
 - macOS 14.4 or later (it relies on Core Audio process taps)
 - Xcode 16 or later
 
+## Download
+Grab `SoundControl.zip` from the [latest release](https://github.com/q2kit/SoundControl/releases/latest),
+unzip it and move **SoundControl.app** to Applications. Releases are built automatically whenever a pull
+request is merged into `main`.
+
+The builds aren't notarized yet, so the first time you open the app macOS will say it can't verify it.
+Go to *System Settings → Privacy & Security*, scroll down and click **Open Anyway** (since macOS 15,
+right-clicking the app and choosing Open no longer gets you past this). Or remove the download flag from
+Terminal once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/SoundControl.app
+```
+
+Releases are signed with the project's own certificate, so updates are recognized as the same app and
+keep their permissions. Apple just doesn't vouch for that certificate, which is why the warning appears
+once.
+
 ## Building
 Open `SoundControl.xcodeproj` and press **Run** (⌘R).
 

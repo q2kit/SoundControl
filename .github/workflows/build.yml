@@ -1,0 +1,113 @@
+name: Build
+
+# Every pull request into main is built to make sure it compiles. Once it's merged, the same build is
+# packaged and published as a GitHub release.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Work out the version
+        id: version
+        run: |
+          marketing=$(xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
+            -showBuildSettings 2>/dev/null | awk '/ MARKETING_VERSION = / { print $3; exit }')
+          echo "version=${marketing}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
+            -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            build
+
+      # Releases are signed with the project's own self-signed certificate, so the app keeps the same
+      # identity from one version to the next and macOS remembers the permissions it was given. It's
+      # not a certificate Apple vouches for, so Gatekeeper still asks once on first launch. Without the
+      # secrets (e.g. pull requests from forks) the app is signed ad hoc instead.
+      - name: Sign
+        env:
+          CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          app=build/DerivedData/Build/Products/Release/SoundControl.app
+          if [ -n "$CERTIFICATE_P12" ]; then
+            keychain="$RUNNER_TEMP/signing.keychain-db"
+            keychain_password=$(openssl rand -hex 16)
+            security create-keychain -p "$keychain_password" "$keychain"
+            security set-keychain-settings -lut 3600 "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+            rm "$RUNNER_TEMP/certificate.p12"
+            # A self-signed certificate isn't trusted, so codesign won't find it by name; pick it by hash,
+            # and put the keychain on the search list so codesign looks there at all.
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            identity=$(security find-certificate -c "SoundControl Self-Signed" -Z "$keychain" | awk '/SHA-1 hash:/ { print $NF }')
+            codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements \
+              --keychain "$keychain" --sign "$identity" "$app"
+          else
+            echo "::warning::No signing certificate configured, signing ad hoc."
+            codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements --sign - "$app"
+          fi
+          codesign --verify --strict "$app"
+          codesign --display --requirements - "$app"
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+      - name: Package
+        run: ditto -c -k --keepParent build/DerivedData/Build/Products/Release/SoundControl.app SoundControl.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SoundControl
+          path: SoundControl.zip
+
+  release:
+    name: Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SoundControl
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" SoundControl.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "SoundControl $VERSION" --generate-notes \
+            --notes "Unzip and move **SoundControl.app** to Applications.
+
+          This build isn't notarized, so macOS blocks it the first time. Open it once, then go to *System Settings → Privacy & Security* and click **Open Anyway**. Or run \`xattr -dr com.apple.quarantine /Applications/SoundControl.app\` in Terminal."
