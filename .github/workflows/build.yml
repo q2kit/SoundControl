@@ -1,7 +1,8 @@
 name: Build
 
 # Every pull request into main is built to make sure it compiles. Once it's merged, the same build is
-# packaged and published as a GitHub release.
+# packaged and published as a GitHub release named after the app's version (MARKETING_VERSION), so each
+# pull request has to bump that version; the check fails if a release with it already exists.
 on:
   pull_request:
     branches: [main]
@@ -31,10 +32,20 @@ jobs:
 
       - name: Work out the version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          marketing=$(xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
+          version=$(xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
             -showBuildSettings 2>/dev/null | awk '/ MARKETING_VERSION = / { print $3; exit }')
-          echo "version=${marketing}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          if [ -z "$version" ]; then
+            echo "::error::Couldn't read MARKETING_VERSION from the project."
+            exit 1
+          fi
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::Version $version has already been released. Bump the version (target SoundControl → General → Version) before merging."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: |
