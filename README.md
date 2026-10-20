@@ -22,8 +22,9 @@ Terminal once:
 xattr -dr com.apple.quarantine /Applications/SoundControl.app
 ```
 
-Because these builds aren't signed with a fixed identity, macOS may also ask for the audio recording
-permission again after you update.
+Releases are signed with the project's own certificate, so updates are recognized as the same app and
+keep their permissions. Apple just doesn't vouch for that certificate, which is why the warning appears
+once.
 
 ## Building
 Open `SoundControl.xcodeproj` and press **Run** (⌘R).

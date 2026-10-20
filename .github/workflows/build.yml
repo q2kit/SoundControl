@@ -36,14 +36,45 @@ jobs:
             -showBuildSettings 2>/dev/null | awk '/ MARKETING_VERSION = / { print $3; exit }')
           echo "version=${marketing}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
-      # There are no signing certificates on the runner, so the app is signed ad hoc.
       - name: Build
         run: |
           xcodebuild -project SoundControl.xcodeproj -scheme SoundControl -configuration Release \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
+            -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build
+
+      # Releases are signed with the project's own self-signed certificate, so the app keeps the same
+      # identity from one version to the next and macOS remembers the permissions it was given. It's
+      # not a certificate Apple vouches for, so Gatekeeper still asks once on first launch. Without the
+      # secrets (e.g. pull requests from forks) the app is signed ad hoc instead.
+      - name: Sign
+        env:
+          CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          app=build/DerivedData/Build/Products/Release/SoundControl.app
+          if [ -n "$CERTIFICATE_P12" ]; then
+            keychain="$RUNNER_TEMP/signing.keychain-db"
+            keychain_password=$(openssl rand -hex 16)
+            security create-keychain -p "$keychain_password" "$keychain"
+            security set-keychain-settings -lut 3600 "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+            rm "$RUNNER_TEMP/certificate.p12"
+            codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements \
+              --keychain "$keychain" --sign "SoundControl Self-Signed" "$app"
+          else
+            echo "::warning::No signing certificate configured, signing ad hoc."
+            codesign --force --options runtime --entitlements SoundControl/SoundControl.entitlements --sign - "$app"
+          fi
+          codesign --verify --strict "$app"
+          codesign --display --requirements - "$app"
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
       - name: Package
         run: ditto -c -k --keepParent build/DerivedData/Build/Products/Release/SoundControl.app SoundControl.zip
