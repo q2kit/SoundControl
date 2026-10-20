@@ -1,5 +1,6 @@
-import Combine
+import AppKit
 import AudioToolbox
+import Combine
 import CoreAudio
 import Foundation
 import os
@@ -84,6 +85,7 @@ final class AudioController: ObservableObject {
     private var routedDeviceListeners: [AudioDeviceID: [AudioPropertyListener]] = [:]
     private var lastRoutedVolumeChange: [AudioDeviceID: Date] = [:]
     private var refreshScheduled = false
+    private var terminationObserver: NSObjectProtocol?
     private var lastSystemVolumeChange = Date.distantPast
     private static let settingsKey = "AppSettings"
     private static let deviceVisibilityKey = "DeviceVisibility"
@@ -110,6 +112,21 @@ final class AudioController: ObservableObject {
             kAudioHardwarePropertyDefaultOutputDevice,
             kAudioHardwarePropertyProcessObjectList,
         ].map { AudioPropertyListener(object: .system, selector: $0) { [weak self] in self?.scheduleRefresh() } }
+
+        // Hand every tapped app its sound back before the process goes away.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.removeAllTaps() }
+        }
+    }
+
+    private func removeAllTaps() {
+        pendingTapRemovals.values.forEach { $0.cancel() }
+        pendingTapRemovals.removeAll()
+        taps.values.forEach { $0.invalidateNow() }
+        log.notice("Removed \(self.taps.count) taps before quitting")
+        taps.removeAll()
     }
 
     var defaultDevice: OutputDevice? { devices.first { $0.id == defaultDeviceID } }

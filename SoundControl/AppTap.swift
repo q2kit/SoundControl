@@ -61,6 +61,17 @@ final class AppTap {
         }
     }
 
+    /// Tears the tap down before returning. Used when the app quits: the process would otherwise exit
+    /// before the queued `invalidate()` gets to run, and the app being tapped would stay silenced until
+    /// Core Audio cleaned up after us.
+    func invalidateNow() {
+        let box = box
+        Self.controlQueue.sync {
+            box.engine?.invalidate()
+            box.engine = nil
+        }
+    }
+
     private func reconfigure() {
         needsRetry = false
         let (box, gainControl, processes, output) = (box, gainControl, processObjectIDs, outputUID)
