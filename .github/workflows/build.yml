@@ -75,4 +75,4 @@ jobs:
             --title "SoundControl $VERSION" --generate-notes \
             --notes "Unzip and move **SoundControl.app** to Applications.
 
-          This build isn't notarized, so macOS will refuse to open it the first time. Right-click the app and choose **Open**, or run \`xattr -dr com.apple.quarantine /Applications/SoundControl.app\`."
+          This build isn't notarized, so macOS blocks it the first time. Open it once, then go to *System Settings → Privacy & Security* and click **Open Anyway**. Or run \`xattr -dr com.apple.quarantine /Applications/SoundControl.app\` in Terminal."

@@ -13,8 +13,17 @@ Grab `SoundControl.zip` from the [latest release](https://github.com/q2kit/Sound
 unzip it and move **SoundControl.app** to Applications. Releases are built automatically whenever a pull
 request is merged into `main`.
 
-The builds aren't notarized, so the first time macOS will say it can't verify the app. Right-click it and
-choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/SoundControl.app` once.
+The builds aren't notarized yet, so the first time you open the app macOS will say it can't verify it.
+Go to *System Settings → Privacy & Security*, scroll down and click **Open Anyway** (since macOS 15,
+right-clicking the app and choosing Open no longer gets you past this). Or remove the download flag from
+Terminal once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/SoundControl.app
+```
+
+Because these builds aren't signed with a fixed identity, macOS may also ask for the audio recording
+permission again after you update.
 
 ## Building
 Open `SoundControl.xcodeproj` and press **Run** (⌘R).
